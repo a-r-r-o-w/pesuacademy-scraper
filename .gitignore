@@ -1,0 +1,5 @@
+*.json
+*.txt
+*.log
+.idea/
+__pycache__/
