@@ -8,18 +8,18 @@ import time
 from bs4 import BeautifulSoup
 from clint.textui import progress
 
-logging.basicConfig(format = "[%(levelname)s - %(asctime)s]: %(message)s",
+logging.basicConfig(format = '[%(levelname)s - %(asctime)s]: %(message)s',
                     datefmt ='%Y-%m-%d %H:%M:%S',
                     handlers = [
                         logging.FileHandler('debug.log'),
-                        logging.StreamHandler(sys.stderr)
+                        logging.StreamHandler(sys.stdout)
                     ],
                     level = logging.INFO)
 
 class cd:
-    def __init__(self, new_dir):
+    def __init__(self, new_dir: str):
         self.old_dir = os.getcwd()
-        self.new_dir = new_dir
+        self.new_dir = new_dir.encode('ascii', 'ignore').decode()
 
         for character in ['\\', '/', ':', '*', '?', '"', '<', '>', '|']:
             if character in self.new_dir:
@@ -82,7 +82,7 @@ class PESUAcademyClient:
 
         # Setup cookies and data for next request
         self.cookies = r.cookies
-        self.csrf_token = soup.find('meta', {'name': 'csrf-token'})['content']
+        self.csrf_token = soup.find('meta', {'name': 'csrf-token'})['content'].encode('ascii', 'ignore').decode()
         data = {
             'j_username': self.username,
             'j_password': self.password,
@@ -98,9 +98,9 @@ class PESUAcademyClient:
 
         logging.debug(f'Request to {url} completed with status: {r.status_code}')
 
-        name = soup.find('h4', {'class': 'info_header'}).text.strip()
-        srn = soup.find('span', {'class': 'info_text'}).text.strip()
-        srn = ' '.join(srn.split()[2:])
+        name = soup.find('h4', {'class': 'info_header'}).text.strip().encode('ascii', 'ignore').decode()
+        srn = soup.find('span', {'class': 'info_text'}).text.strip().encode('ascii', 'ignore').decode()
+        srn = ' '.join(srn.split()[2:]).encode('ascii', 'ignore').decode()
 
         logging.info(f'Logged in as {name} ({srn})!')
 
@@ -120,7 +120,7 @@ class PESUAcademyClient:
 
         logging.debug(f'Request to {url} completed with status: {r.status_code}')
 
-        self.csrf_token = soup.find('meta', {'name': 'csrf-token'})['content']
+        self.csrf_token = soup.find('meta', {'name': 'csrf-token'})['content'].encode('ascii', 'ignore').decode()
 
     def logout (self):
         pass
@@ -184,16 +184,22 @@ class PESUAcademyClient:
         logging.debug(f'Request to {url} completed with status: {r.status_code}')
 
         self.subjects = [[
-            *[data.text.strip() for data in row.find_all('td')],
-            row['id'][row['id'].find('_') + 1 :]
+            *[data.text.strip().encode('ascii', 'ignore').decode() for data in row.find_all('td')],
+            row['id'][row['id'].find('_') + 1 :].encode('ascii', 'ignore').decode()
         ] for row in soup.find('tbody').find_all('tr')]
 
+        for s in self.subjects:
+            print(self._subject_formatter(s))
         pretty_subjects = '\n'.join('{index:<5} {name:<50} {id:<15} - {course_type:<15} - Status: {status:<10}'
                                     .format(index = f'({index})',
                                             **self._subject_formatter(subject))
                                     for index, subject in enumerate(self.subjects, start = 1))
 
         logging.info(f'Found subjects:\n{pretty_subjects}')
+
+    def scrape_subjects (self):
+        for i in range(6, len(self.subjects)):
+            self.scrape_subject(index = i)
 
     def scrape_subject (self, index: int):
         subject = self.subjects[index]
@@ -218,9 +224,12 @@ class PESUAcademyClient:
 
         tab_content = soup.find('div', {'class': 'tab-content'})
 
-        units = [[unit.text.strip(),
+        if tab_content is None:
+            return
+
+        units = [[unit.text.strip().encode('ascii', 'ignore').decode(),
                   unit['href'][unit['href'].find('_') + 1:]
-                  ] for unit in tab_content.find_all('a')]
+                  ] for unit in tab_content.find('div', {'id': 'courseUnits'}).find_all('a')]
 
         pretty_units = '\n'.join(f'({index}) {unit[0]}'
                                  for index, unit in enumerate(units, start = 1))
@@ -249,10 +258,18 @@ class PESUAcademyClient:
         logging.warning('Using raw values collected manually as query parameters. Try automating the process!')
         logging.debug(f'Request to {url} completed with status: {r.status_code}')
 
+        tbody = soup.find('tbody')
+
+        if tbody is not None:
+            trs = tbody.find_all('tr')
+        else:
+            logging.info(f'Found no notes for {unit[0]}!')
+            return
+
         notes = []
-        for row in soup.find('tbody').find_all('tr'):
+        for row in trs:
             try:
-                name = row.find('span', {'class': 'short-title'}).text.strip()
+                name = row.find('span', {'class': 'short-title'}).text.strip().encode('ascii', 'ignore').decode()
                 note = row.find('span', {'class': 'pesu-icon-open-book'}).parent
                 offset = note['onclick'].find('(') + 1
                 onclick = [i.strip("'")
@@ -266,58 +283,128 @@ class PESUAcademyClient:
         logging.info('Found notes for classes:\n{classes}'
                      .format(classes = '\n'.join(i[0] for i in notes)))
 
-        with cd(unit[0]):
-            processed = set()
-            re_index = 0
+        slides = []
+        for row in trs:
+            try:
+                name  = row.find('span', {'class': 'short-title'}).text.strip().encode('ascii', 'ignore').decode()
+                slide = row.find('span', {'class': 'pesu-icon-presentation-graphs'}).parent
+                offset = slide['onclick'].find('(') + 1
+                onclick = [i.strip("'")
+                           for i in slide['onclick'][offset: -1].split(',')]
+                onclick = [name, *onclick]
+            except:
+                pass
+            else:
+                slides.append(onclick)
 
-            for note in notes:
-                if note[0] in processed:
-                    note[0] = note[0] + f'_{re_index}'
-                    re_index += 1
+        logging.info('Found notes for classes:\n{classes}'
+                     .format(classes = '\n'.join(i[0] for i in notes)))
 
-                processed.add(note[0])
+        with cd(unit[0]), cd('Notes'):
+            self.scrape_notes(notes)
 
-                data = {
-                    'url': 'studentProfilePESUAdmin',
-                    'controllerMode': '6403',
-                    'actionType': '60',
-                    'selectedData': note[2],
-                    'id': note[5],
-                    'unitid': note[1],
-                    'menuId': '653'
-                }
+        with cd(unit[0]), cd('Slides'):
+            self.scrape_slides(slides)
 
-                url = 'https://www.pesuacademy.com/Academy/s/studentProfilePESUAdmin'
-                r = requests.get(url, cookies = self.cookies, data = data)
-                soup = BeautifulSoup(r.text, features = 'lxml')
+    def scrape_notes (self, notes):
+        for num, note in enumerate(notes, start = 1):
+            note[0] = f'({num}) {note[0]}'
 
-                logging.warning('Using raw values collected manually as query parameters. Try automating the process!')
+            data = {
+                'url': 'studentProfilePESUAdmin',
+                'controllerMode': '6403',
+                'actionType': '60',
+                'selectedData': note[2],
+                'id': note[5],
+                'unitid': note[1],
+                'menuId': '653'
+            }
+
+            url = 'https://www.pesuacademy.com/Academy/s/studentProfilePESUAdmin'
+            r = requests.get(url, cookies = self.cookies, data = data)
+            soup = BeautifulSoup(r.text, features = 'lxml')
+
+            logging.warning('Using raw values collected manually as query parameters. Try automating the process!')
+            logging.debug(f'Request to {url} completed with status: {r.status_code}')
+
+            for index, iframe in enumerate(soup.find_all('iframe'), start = 1):
+                src = 'https://www.pesuacademy.com' + iframe['src']
+                src = src[: src.find('#')]
+
+                try:
+                    r = requests.get(src, cookies = self.cookies, stream = True)
+                except:
+                    continue
+
                 logging.debug(f'Request to {url} completed with status: {r.status_code}')
 
-                for index, iframe in enumerate(soup.find_all('iframe'), start = 1):
-                    src = 'https://www.pesuacademy.com' + iframe['src']
-                    src = src[: src.find('#')]
+                size = int(r.headers.get('content-length'))
+                file_name = f'{note[0]}_{index}.pdf'
+                for character in ['\\', '/', ':', '*', '?', '"', '<', '>', '|']:
+                    if character in file_name:
+                        file_name = file_name.replace(character, '_')
 
+                logging.info(f'Download: {file_name} ({round(size / (1 << 20), 2)} MB)')
+
+                with open(file_name, 'wb') as file:
+                    for chunk in progress.bar(r.iter_content(
+                            chunk_size = 1 << 10),
+                            expected_size = size / (1 << 10) + 1
+                    ):
+                        if chunk:
+                            file.write(chunk)
+
+                time.sleep(1)
+
+    def scrape_slides (self, slides):
+        for num, slide in enumerate(slides, start = 1):
+            slide[0] = f'({num}) {slide[0]}'
+
+            data = {
+                'url': 'studentProfilePESUAdmin',
+                'controllerMode': '6403',
+                'actionType': '60',
+                'selectedData': slide[2],
+                'id': slide[5],
+                'unitid': slide[1],
+                'menuId': '653'
+            }
+
+            url = 'https://www.pesuacademy.com/Academy/s/studentProfilePESUAdmin'
+            r = requests.get(url, cookies = self.cookies, data = data)
+            soup = BeautifulSoup(r.text, features = 'lxml')
+
+            logging.warning('Using raw values collected manually as query parameters. Try automating the process!')
+            logging.debug(f'Request to {url} completed with status: {r.status_code}')
+
+            for index, iframe in enumerate(soup.find_all('iframe'), start = 1):
+                src = 'https://www.pesuacademy.com' + iframe['src']
+                src = src[: src.find('#')]
+
+                try:
                     r = requests.get(src, cookies = self.cookies, stream = True)
-                    time.sleep(1)
+                except:
+                    continue
 
-                    logging.debug(f'Request to {url} completed with status: {r.status_code}')
+                logging.debug(f'Request to {url} completed with status: {r.status_code}')
 
-                    size = int(r.headers.get('content-length'))
-                    file_name = f'{note[0]}_{index}.pdf'
-                    for character in ['\\', '/', ':', '*', '?', '"', '<', '>', '|']:
-                        if character in file_name:
-                            file_name = file_name.replace(character, '_')
+                size = int(r.headers.get('content-length'))
+                file_name = f'{slide[0]}_{index}.pdf'
+                for character in ['\\', '/', ':', '*', '?', '"', '<', '>', '|']:
+                    if character in file_name:
+                        file_name = file_name.replace(character, '_')
 
-                    logging.info(f'Download: {file_name} ({round(size / (1 << 20), 2)} MB)')
+                logging.info(f'Download: {file_name} ({round(size / (1 << 20), 2)} MB)')
 
-                    with open(file_name, 'wb') as file:
-                        for chunk in progress.bar(r.iter_content(
-                                chunk_size = 1 << 10),
-                                expected_size = size / (1 << 10) + 1
-                        ):
-                            if chunk:
-                                file.write(chunk)
+                with open(file_name, 'wb') as file:
+                    for chunk in progress.bar(r.iter_content(
+                            chunk_size = 1 << 10),
+                            expected_size = size / (1 << 10) + 1
+                    ):
+                        if chunk:
+                            file.write(chunk)
+
+                time.sleep(1)
 
     @staticmethod
     def _subject_formatter (subject):
@@ -326,6 +413,6 @@ class PESUAcademyClient:
             'id': f'({subject[0]})',
             'course_type': 'Core Course'     if subject[2] == 'CC' else
                            'Elective Course' if subject[2] == 'EC' else
-                           None,
+                           'None',
             'status': subject[3]
         }
