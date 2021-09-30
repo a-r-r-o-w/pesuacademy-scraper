@@ -2,7 +2,7 @@
 PESUAcademy-Scraper
 =====================
 
-Notes/Slides scraper for [PESU Academy](www.pesuacademy.com)
+Notes/Slides scraper for [PESU Academy](https://www.pesuacademy.com)
 
 ### Usage
 ```py
