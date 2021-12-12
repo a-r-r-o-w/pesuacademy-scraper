@@ -198,7 +198,7 @@ class PESUAcademyClient:
         logging.info(f'Found subjects:\n{pretty_subjects}')
 
     def scrape_subjects (self):
-        for i in range(6, len(self.subjects)):
+        for i in range(len(self.subjects)):
             self.scrape_subject(index = i)
 
     def scrape_subject (self, index: int):
