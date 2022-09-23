@@ -24,3 +24,6 @@ python3 download.py -s 3 PES1UG20XY123 MySuperSecretPassword
 Additionally, you can specify whether or not you want console logging to be enabled while scraping (enabled by default).
 - To disable logging, use `-q` or `--quiet`
 - To enable debug logging, use `-v` or `--verbose`
+
+### To-Do
+- [ ] Publish as `PyPi` package to make the project accessible to everyone. 
