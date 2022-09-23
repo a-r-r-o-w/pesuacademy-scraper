@@ -239,7 +239,7 @@ class PESUAcademyClient:
             for unit in units:
                 self.scrape_unit(unit)
 
-    def scrape_unit (self, unit: [str]):
+    def scrape_unit (self, unit: list[str]):
         logging.info(f'Scraping {unit[0]}')
 
         data = {
