@@ -1,11 +1,23 @@
-*.json
-*.log
+# VS Code
+.vscode/
+
+# IntelliJ
 .idea/
+
+# python
+.venv/
 __pycache__/
 
-# ignore downloaded content 
+# environment files
+
+.env
+
+# downloaded/debug content 
 *.pdf
 *.docx
 *.ppt
 *.pptx
+*.log
+*.json
 Sem-*
+
